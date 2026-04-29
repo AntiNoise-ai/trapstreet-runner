@@ -41,7 +41,20 @@ echo "→ installing python dependencies (this can take ~30s on first run)"
 "$DEST/venv/bin/pip" install --quiet --upgrade pip
 "$DEST/venv/bin/pip" install --quiet -r "$DEST/requirements.txt"
 
-# 4. Install launcher
+# 4. Patch bundled agent shebangs to point at the trapstreet venv python
+#    (otherwise `#!/usr/bin/env python3` resolves to system python, which
+#    won't have smolagents/anthropic from our requirements.txt).
+echo "→ patching bundled agent shebangs"
+VENV_PY="$DEST/venv/bin/python"
+for f in "$DEST"/agent/*.py; do
+  [ -f "$f" ] || continue
+  # Replace the first line with an absolute shebang to the venv python.
+  sed -i.bak "1s|.*|#!$VENV_PY|" "$f"
+  rm -f "$f.bak"
+  chmod +x "$f"
+done
+
+# 5. Install launcher
 mkdir -p "$BIN_DIR"
 cp "$DEST/bin/trapstreet" "$BIN_DIR/trapstreet"
 chmod +x "$BIN_DIR/trapstreet"
