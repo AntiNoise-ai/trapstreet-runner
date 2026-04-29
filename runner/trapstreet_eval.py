@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import platform
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Allow running as both `python runner/trapstreet_eval.py` and `python -m runner.trapstreet_eval`
@@ -61,11 +63,40 @@ def task_questions(task: dict) -> list[dict]:
     }]
 
 
+def auto_patch(label: str) -> str:
+    """Auto-detected environment string for the leaderboard's `patch` column."""
+    base = f"{platform.system()} {platform.machine()}"
+    lab = label.lower()
+    if "smolagent" in lab:
+        return f"claude-opus-4-7 via smolagents CodeAgent, {base}"
+    if "claude" in lab:
+        return f"claude-opus-4-7 (anthropic SDK) + Read tool, {base}"
+    return base  # BYO agent — runner doesn't know what it ran
+
+
+def estimate_cost_usd(label: str, num_questions: int) -> float:
+    """Rough $/task estimate. v0.1 ships per-agent constants until we instrument
+    real token capture (TODO v0.2). BYO agents return 0 unless self-reported.
+    """
+    lab = label.lower()
+    if "smolagent" in lab:
+        per_q = 0.08  # smolagents emits more tokens (code reasoning)
+    elif "claude" in lab:
+        per_q = 0.04  # opus 4.7 with ~2k tokens/q on this case
+    else:
+        return 0.0  # BYO — unknown
+    return round(per_q * num_questions, 4)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("case_id")
     ap.add_argument("--agent", required=True, help="Agent command (e.g. ./agent/foo.py or 'python3 -m mymod')")
     ap.add_argument("--agent-label", default=None)
+    ap.add_argument("--patch", default=None,
+                    help="Override the auto-detected environment string (model + OS)")
+    ap.add_argument("--cost-usd", type=float, default=None,
+                    help="Self-reported $/run. Overrides the v0.1 per-agent estimate.")
     ap.add_argument("--no-submit", action="store_true")
     ap.add_argument("--hf-base", default=os.environ.get("HF_DATASET_BASE", DEFAULT_HF_BASE))
     args = ap.parse_args()
@@ -81,6 +112,7 @@ def main() -> int:
         print(f"  docs: {task.get('doc_files', [])}")
         print(f"  questions: {len(questions)}")
 
+        start = time.monotonic()
         per_q = []
         for i, q in enumerate(questions, 1):
             print()
@@ -99,12 +131,19 @@ def main() -> int:
                 "verdict": verdict,
             })
 
+        latency_ms = int((time.monotonic() - start) * 1000)
         score = sum(1 for r in per_q if r["verdict"] == "correct")
         total = len(per_q)
+        patch = args.patch or auto_patch(label)
+        cost_usd = args.cost_usd if args.cost_usd is not None else estimate_cost_usd(label, total)
+
         print()
-        print(f"  Score:   {score}/{total}")
-        print(f"  Agent:   {label}")
-        print(f"  Case:    {args.case_id}")
+        print(f"  Score:    {score}/{total}")
+        print(f"  Agent:    {label}")
+        print(f"  Case:     {args.case_id}")
+        print(f"  Latency:  {latency_ms / 1000:.1f}s")
+        print(f"  Cost:     ${cost_usd:.4f} (estimated)")
+        print(f"  Patch:    {patch}")
 
         if args.no_submit:
             print("  (skipped submission: --no-submit)")
@@ -118,7 +157,6 @@ def main() -> int:
             print("  (no handle — skipping submission)")
             return 0
 
-        # Compact summary into given/gold for the row (keeps schema unchanged).
         given_summary = " | ".join(f"{r['id']}={r['given']}" for r in per_q)
         gold_summary = " | ".join(f"{r['id']}={r['gold']}" for r in per_q)
         try:
@@ -131,6 +169,11 @@ def main() -> int:
                 "given": given_summary[:1000],
                 "gold": gold_summary[:1000],
                 "verdict": "correct" if score == total else "wrong",
+                "tier": "bronze",
+                "fabrications": 0,
+                "cost_usd": cost_usd,
+                "latency_ms": latency_ms,
+                "patch": patch,
             })
             print(f"  ✅ submitted: {row.get('id', '?')}")
             print(f"  → https://trapstreet.run/financebench/")

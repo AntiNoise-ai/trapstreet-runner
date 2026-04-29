@@ -58,7 +58,7 @@ def test_runner_v2_partial_score(tmp_path):
         cwd=WORKSPACE,
     )
     assert r.returncode == 0, r.stderr
-    assert "Score:   1/2" in r.stdout
+    assert "Score:    1/2" in r.stdout
     assert "✅" in r.stdout and "❌" in r.stdout
 
 
@@ -74,7 +74,7 @@ def test_runner_v1_back_compat(tmp_path):
         cwd=WORKSPACE,
     )
     assert r.returncode == 0, r.stderr
-    assert "Score:   1/1" in r.stdout
+    assert "Score:    1/1" in r.stdout
 
 
 def test_runner_with_failing_agent(tmp_path):
