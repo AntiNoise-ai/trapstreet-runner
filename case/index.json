@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "suites": {
+    "financebench": ["financebench-1"]
+  }
+}

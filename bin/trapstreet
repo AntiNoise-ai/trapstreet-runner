@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# trapstreet CLI launcher — installed to ~/.local/bin/trapstreet by install.sh
+set -euo pipefail
+
+TRAPSTREET_HOME="${TRAPSTREET_HOME:-$HOME/.trapstreet}"
+PYTHON="$TRAPSTREET_HOME/venv/bin/python"
+RUNNER="$TRAPSTREET_HOME/runner/trapstreet_eval.py"
+
+if [ ! -x "$PYTHON" ] || [ ! -f "$RUNNER" ]; then
+  echo "trapstreet: install missing or corrupt at $TRAPSTREET_HOME" >&2
+  echo "reinstall: curl -fsSL https://trapstreet.run/install.sh | bash" >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  eval)
+    shift
+    # Default --agent to the bundled reference agent if not specified.
+    has_agent=0
+    for arg in "$@"; do
+      [ "$arg" = "--agent" ] && has_agent=1 && break
+    done
+    if [ "$has_agent" -eq 0 ]; then
+      set -- "$@" --agent "$TRAPSTREET_HOME/agent/claude_finance.py"
+    fi
+    exec "$PYTHON" "$RUNNER" "$@"
+    ;;
+  ""|-h|--help|help)
+    cat <<EOF
+Trapstreet — community eval harness for AI agents.
+
+Usage:
+  trapstreet eval <case-id>                 Run with the bundled Claude reference agent
+  trapstreet eval <case-id> --agent <cmd>   Run with your own agent (BYO contract)
+
+Examples:
+  trapstreet eval financebench-1
+  trapstreet eval financebench-1 --agent ./my-agent.py
+  trapstreet eval financebench-1 --no-submit
+
+Environment:
+  ANTHROPIC_API_KEY     required for the bundled reference agent
+  HF_DATASET_BASE       optional override for case source (default: Ruqii/trapstreet-cases on HF)
+
+Cases:        https://huggingface.co/datasets/Ruqii/trapstreet-cases
+Leaderboard:  https://trapstreet.run/financebench/
+Source:       https://github.com/AntiNoise-ai/trapstreet-runner
+EOF
+    [ -z "${1:-}" ] && exit 1 || exit 0
+    ;;
+  *)
+    echo "trapstreet: unknown command '$1'. Try 'trapstreet --help'." >&2
+    exit 1
+    ;;
+esac
