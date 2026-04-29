@@ -97,6 +97,8 @@ def main() -> int:
                     help="Override the auto-detected environment string (model + OS)")
     ap.add_argument("--cost-usd", type=float, default=None,
                     help="Self-reported $/run. Overrides the v0.1 per-agent estimate.")
+    ap.add_argument("--github", default=None,
+                    help="Optional GitHub username — renders avatar + link on the leaderboard")
     ap.add_argument("--no-submit", action="store_true")
     ap.add_argument("--hf-base", default=os.environ.get("HF_DATASET_BASE", DEFAULT_HF_BASE))
     args = ap.parse_args()
@@ -157,24 +159,34 @@ def main() -> int:
             print("  (no handle — skipping submission)")
             return 0
 
+        github = args.github
+        if not github and sys.stdin.isatty():
+            try:
+                github = input("GitHub username (optional, for avatar): ").strip()
+            except EOFError:
+                github = ""
+
         given_summary = " | ".join(f"{r['id']}={r['given']}" for r in per_q)
         gold_summary = " | ".join(f"{r['id']}={r['gold']}" for r in per_q)
+        payload = {
+            "handle": handle,
+            "case_id": args.case_id,
+            "agent_label": label,
+            "score": score,
+            "total": total,
+            "given": given_summary[:1000],
+            "gold": gold_summary[:1000],
+            "verdict": "correct" if score == total else "wrong",
+            "tier": "bronze",
+            "fabrications": 0,
+            "cost_usd": cost_usd,
+            "latency_ms": latency_ms,
+            "patch": patch,
+        }
+        if github:
+            payload["github_handle"] = github
         try:
-            row = submit_run({
-                "handle": handle,
-                "case_id": args.case_id,
-                "agent_label": label,
-                "score": score,
-                "total": total,
-                "given": given_summary[:1000],
-                "gold": gold_summary[:1000],
-                "verdict": "correct" if score == total else "wrong",
-                "tier": "bronze",
-                "fabrications": 0,
-                "cost_usd": cost_usd,
-                "latency_ms": latency_ms,
-                "patch": patch,
-            })
+            row = submit_run(payload)
             print(f"  ✅ submitted: {row.get('id', '?')}")
             print(f"  → https://trapstreet.run/financebench/")
         except Exception as e:
